@@ -1,0 +1,33 @@
+services:
+  app:
+    build: .
+    container_name: legacyapp
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${PORT:-5050}:5050"
+    depends_on:
+      - db
+    networks:
+      - internal
+
+  db:
+    image: mysql:8.0
+    container_name: legacydb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_change_me
+      MYSQL_DATABASE: legacydb
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: change_me
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  db_data:

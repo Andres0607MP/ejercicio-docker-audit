@@ -1,0 +1,45 @@
+# .trivyignore — CVEs ignorados con justificación
+# ================================================
+# Estos CVEs provienen del base image python:3.11-slim (Debian 13)
+# o de paquetes vendidos internamente dentro de pip/setuptools.
+# No son vulnerabilidades de la aplicación propiamente dicha.
+
+# ── Paquetes Python del base image ──────────────────────────
+
+# CVE-2025-47273 | setuptools | HIGH | Fixed: 78.1.1
+# INSTALLED en la imagen: setuptools 84.0.0 (supera el fix).
+# Trivy lee metadatos obsoletos de una capa de Docker inferior.
+# Falso positivo: el paquete realmente está actualizado.
+CVE-2025-47273
+
+# GHSA-6v7p-g79w-8964 | msgpack | HIGH | Fixed: 1.2.1
+# msgpack 1.1.2 solo existe como copia interna (vendida) dentro de pip.
+# No es una dependencia directa de la aplicación.
+# La versión standalone de msgpack no está instalada (pip show msgpack → not found).
+# Falso positivo: no es vulnerable en runtime.
+GHSA-6v7p-g79w-8964
+
+# ── Pacotes del sistema Debian (sin fix disponible) ─────────
+# Estos CVEs afectan paquetes del SO base (util-linux, gzip, sqlite, etc.)
+# No tienen fix disponible. Se resuelven al hacer upgrade del base image.
+# Se usan con --ignore-unfixed para filtrarlos, pero se listan aquí
+# para documentación completa.
+
+CVE-2026-76642
+CVE-2026-78408
+CVE-2026-78409
+CVE-2026-78410
+CVE-2026-41992
+CVE-2026-54369
+CVE-2026-11822
+CVE-2026-11824
+CVE-2026-13221
+CVE-2026-42496
+CVE-2026-42497
+CVE-2026-48962
+CVE-2026-57432
+CVE-2026-57433
+CVE-2026-8376
+CVE-2026-9538
+CVE-2026-16742
+CVE-2025-69720

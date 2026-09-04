@@ -1,0 +1,27 @@
+# Configuración de Bandit para CI/CD
+# ====================================
+# Esta configuración documenta las exclusiones justificadas.
+
+# Directorios excluidos del escaneo (terceros y artefactos)
+exclude_dirs:
+  - .venv
+  - venv
+  - .git
+  - __pycache__
+  - .pytest_cache
+
+# Tests omitidos globalmente con justificación académica:
+# B101 (assert_used): Se utiliza 'assert' en archivos de test (test_app.py).
+#   En pytest, el uso de 'assert' es la práctica estándar y no afecta código
+#   de producción. Bandit avisa de este patrón, pero no representa riesgo real
+#   en este contexto.
+#
+# B104 (hardcoded_bind_all_interfaces): La aplicación escucha en 0.0.0.0.
+#   En contenedores Docker, escuchar en 0.0.0.0 es necesario para que el
+#   servicio sea accesible dentro de la red del contenedor. La exposición
+#   externa se controla mediante el mapeo de puertos y reverse proxy.
+skips:
+  - B101
+  - B104
+
+# No se omiten otros tests: todas las demás reglas de Bandit permanecen activas.

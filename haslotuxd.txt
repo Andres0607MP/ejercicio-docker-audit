@@ -1,0 +1,303 @@
+============================================================
+HASLOTUXD.TXT — Guía paso a paso para subir el proyecto a GitHub
+y validar el pipeline CI/CD (PASO 3)
+============================================================
+
+IMPORTANTE: Este archivo es una guía para TI, no es documentación técnica.
+Sigue los pasos exactamente en orden. No inventes nada.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 1: Verificar el repositorio local antes del primer push
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Abre una terminal en la carpeta del proyecto:
+   cd /home/andres/Documentos/SENA/5_Trimestre/Evidencia_21-7/labs/ejercicio-docker-audit
+
+2. Ejecuta este comando para ver el estado de Git:
+   git status
+
+   Debería mostrarte algo como:
+   - Archivos sin hacer commit (como app.py, Dockerfile, etc.)
+   - Un mensaje que diga "nothing to commit, working tree clean" si ya
+     hiciste commit.
+
+3. Si hay archivos sin commit, haz el primer commit:
+   git add .
+   git commit -m "Paso 3: CI/CD pipeline con pytest, bandit, trivy y GHCR"
+
+   IMPORTANTE: Verifica que .env NO esté en el commit:
+   git status
+   git diff --cached --name-only
+
+   Si ves ".env" en esa lista, algo está mal. NO debe aparecer.
+   El .env está en .gitignore y NO debe subirse jamás.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 2: Hacer el primer push a GitHub
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4. Crea un repositorio nuevo en GitHub:
+   - Ve a github.com
+   - Haz clic en "New repository"
+   - Ponle un nombre (ej: ejercicio-docker-audit)
+   - Déjalo como público o privado (lo que prefieras)
+   - NO marques "Add a README" ni "Add .gitignore" ni "Add license"
+   - Haz clic en "Create repository"
+
+5. GitHub te mostrará dos comandos. Copia y pega EXACTAMENTE estos:
+
+   git remote add origin https://github.com/TU_USUARIO/ejercicio-docker-audit.git
+   git branch -M main
+   git push -u origin main
+
+   NOTA: Reemplaza "TU_USUARIO" con tu nombre de usuario de GitHub.
+   Si ya existe un remote origin, usa:
+   git remote set-url origin https://github.com/TU_USUARIO/ejercicio-docker-audit.git
+
+6. Verifica que el push funcionó:
+   git log --oneline -3
+   git remote -v
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 3: Verificar que el workflow aparece en GitHub
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7. En GitHub, entra al repositorio que acabas de crear.
+8. Haz clic en la pestaña "Actions".
+9. Deberías ver el workflow llamado "CI/CD Pipeline".
+10. Si hiciste push a "main", el workflow debería ejecutarse automáticamente.
+11. Haz clic en el nombre del workflow para ver los jobs:
+    - test (Pytest)
+    - security-scan (Bandit)
+    - docker-build (Docker Build)
+    - trivy-scan (Trivy Vulnerability Scan)
+    - publish-ghcr (Publish to GHCR) ← SOLO en push a main
+
+    NOTA: El job "publish-ghcr" no se ejecutará en Pull Requests.
+    Solo se ejecuta cuando haces push directamente a la rama "main".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 4: Secrets y Variables de GitHub (¿NECESARIOS?)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+12. Ve a: GitHub → tu repositorio → Settings → Actions →
+    "Secrets and variables" → "Actions"
+
+13. NO necesitas crear ningún secret manualmente para GHCR.
+    El workflow usa ${{ secrets.GITHUB_TOKEN }} que es un token
+    automático que GitHub genera para cada workflow.
+    NO DEBES crear un Personal Access Token (PAT) a menos que
+    sea estrictamente necesario.
+
+14. El GITHUB_TOKEN ya tiene los permisos necesarios porque en el
+    workflow se declaró:
+      permissions:
+        contents: read
+        packages: write
+
+    Esto permite:
+    - contents: read → leer el código del repositorio
+    - packages: write → subir imágenes a GHCR
+
+    NO necesitas crear ningún secret adicional.
+
+15. NO DEBES crear estos secrets (no son necesarios):
+    ❌ DB_HOST, DB_PASS, DB_USER, DB_NAME (no se usan en CI)
+    ❌ AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (no se usa AWS)
+    ❌ Ningún secret de base de datos
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 5: Cómo verificar que la imagen se publicó en GHCR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+16. Después de que el workflow termine en GitHub Actions:
+    - Entra a la pestaña "Actions"
+    - Haz clic en el workflow más reciente
+    - Busca el job "publish-ghcr"
+    - Si tiene un check verde ✓, la imagen se publicó
+
+17. Para verificar manualmente:
+    - En GitHub, entra a tu repositorio
+    - Haz clic en "Packages" (en la pestaña principal del repo)
+    - Deberías ver un paquete llamado "ghcr.io/TU_USUARIO/ejercicio-docker-audit"
+    - Haz clic y verás los tags (commits SHA, branch name, latest)
+
+18. El nombre exacto de la imagen será:
+    ghcr.io/<TU_USUARIO>/ejercicio-docker-audit:<tag>
+
+    Donde <tag> puede ser:
+    - El SHA del commit (ej: abc123...)
+    - "main" (si se hace push a la rama principal)
+    - "latest" (si es la rama principal)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 6: Cómo revisar los logs de cada job
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+19. En GitHub → Actions → haz clic en el workflow run
+20. Haz clic en el job que quieras revisar:
+    - "test" → ve a "Ejecutar tests" → ves la salida de pytest
+    - "security-scan" → ves la salida de Bandit
+    - "docker-build" → ves el progreso del build de Docker
+    - "trivy-scan" → ves los resultados de Trivy
+    - "publish-ghcr" → ves el login y push a GHCR
+
+21. Si algo falla, haz clic en el job fallido y revisa:
+    - El paso que falló (tiene un cuadro rojo)
+    - Haz clic en "View details" o "Logs"
+    - La salida mostrará el error exacto
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 7: Qué hacer si algo falla
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+22. Si falla "test" (Pytest):
+    - Revisa que todos los tests pasen localmente:
+      pytest -v
+    - Corrige los tests que fallen
+    - Commitea y haz push de nuevo
+
+23. Si falla "security-scan" (Bandit):
+    - Revisa localmente:
+      bandit -r . -x './.venv,./venv,./.git' -c bandit.yaml
+    - Si hay nuevos hallazgos, corrígelos en el código
+    - No agregues "|| true" para ocultar errores
+
+24. Si falla "docker-build":
+    - Revisa localmente:
+      docker compose build
+    - Asegúrate de que el Dockerfile funcione
+    - Verifica que .dockerignore excluya archivos innecesarios
+
+25. Si falla "trivy-scan":
+    - Ejecuta localmente:
+      trivy image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed legacyapp:latest
+    - Si aparecen vulnerabilidades HIGH/CRITICAL nuevas:
+      a) Actualiza las dependencias en requirements.txt
+      b) O agrega el CVE al .trivyignore con explicación
+    - Las CVEs listadas en .trivyignore son falsos positivos
+      o de paquetes del base image sin fix disponible
+
+26. Si falla "publish-ghcr":
+    - Verifica que el push sea a la rama "main" (no a otra rama)
+    - Verifica que los permisos en el workflow sean correctos
+    - El GITHUB_TOKEN se genera automáticamente — no necesitas secret
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 8: Qué NO debes subir nunca
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+27. NUNCA subas estos archivos al repositorio:
+    ❌ .env (contiene credenciales reales)
+    ❌ bandit-results.json y bandit-results.txt (resultados de auditoría)
+    ❌ __pycache__/ (archivos compilados)
+    ❌ .pytest_cache/ (cache de tests)
+    ❌ .venv/ (entorno virtual local)
+
+28. Puedes verificarlo con:
+    git status
+    # .env, bandit-results.* NO deben aparecer
+
+29. Para verificar qué archivos están trackeados:
+    git ls-files
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 9: Cómo volver a ejecutar el pipeline
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+30. Después de corregir algo:
+    git add .
+    git commit -m "Descripción del cambio"
+    git push origin main
+
+    El workflow se ejecutará automáticamente.
+
+31. Para provocar manualmente un workflow run:
+    - En GitHub → Actions → CI/CD Pipeline → "Run workflow" dropdown
+    - O simplemente haz push.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 10: Pull Request vs Push a rama principal
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+32. Pull Request (PR):
+    - Trabajas en una rama (ej: feature/security-fixes)
+    - Creas un PR pidiendo merge a "main"
+    - El workflow corre: test, security-scan, docker-build, trivy-scan
+    - El job "publish-ghcr" NO se ejecuta (es solo para push a main)
+    - Si todos los checks pasan, puedes hacer merge
+
+33. Push a rama principal (main):
+    - Haces push directamente a "main"
+    - El workflow corre: test, security-scan, docker-build, trivy-scan, publish-ghcr
+    - La imagen se publica en GHCR
+    - Usado para releases
+
+34. Recomendación académica:
+    - Usa ramas para trabajo normal
+    - Solo haz push a "main" cuando todo funcione
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 11: Estructura de archivos que deben estar en Git
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+35. Estos archivos DEBEN estar en Git (tracked):
+    ✅ app.py
+    ✅ test_app.py
+    ✅ requirements.txt
+    ✅ requirements-dev.txt
+    ✅ Dockerfile
+    ✅ docker-compose.yml
+    ✅ .dockerignore
+    ✅ .gitignore
+    ✅ .env.example
+    ✅ bandit.yaml
+    ✅ .trivyignore
+    ✅ .github/workflows/ci-cd.yml
+    ✅ AUDITORIA_BANDIT.md
+    ✅ REPORT_PASO2.md
+    ✅ REPORT_PASO3.md
+
+36. Estos archivos NO deben estar en Git (ignored):
+    ❌ .env
+    ❌ bandit-results.json
+    ❌ bandit-results.txt
+    ❌ __pycache__/
+    ❌ .pytest_cache/
+    ❌ .venv/
+
+37. Para verificar:
+    git ls-files                    # archivos trackeados
+    git status                      # archivos sin trackear/modificados
+    git check-ignore .env           # debería devolver ".env" (está ignorado)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 12: Resumen rápido de qué es automático vs manual
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AUTOMÁTICO (no necesitas hacer nada después del push):
+- pytest corre en CI
+- Bandit corre en CI
+- Docker build corre en CI
+- Trivy corre en CI
+- Imagen se publica en GHCR (solo push a main)
+
+MANUAL (tú debes hacer esto):
+1. Hacer commit y push a GitHub
+2. Crear el repositorio en GitHub (primera vez)
+3. Verificar en la pestaña Actions que el workflow aparece
+4. Revisar los resultados en GitHub Actions si algo falla
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECORDATORIO FINAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠ NO hagas todavía el despliegue en EC2.
+⚠ NO configures Nginx Proxy Manager.
+⚠ NO configures HTTPS ni Let's Encrypt.
+⚠ NO configures subdominios (api, dozzle, kuma).
+⚠ NO configures firewall de EC2.
+⚠ Eso corresponde al PASO 4.
+
+Este PASO 3 solo deja preparado el pipeline CI/CD y la publicación
+de la imagen en GHCR. El despliegue real en EC2 será en el PASO 4.

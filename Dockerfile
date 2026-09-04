@@ -1,9 +1,19 @@
-FROM python:3.8
+FROM python:3.11-slim
+
 WORKDIR /app
 
-COPY . /app
+COPY requirements.txt .
 
-RUN pip install Flask==1.1.2 PyMySQL==0.9.3
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN useradd --create-home --shell /bin/false appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 5050
-CMD ["python", "app.py"]
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5050", "app:app"]
