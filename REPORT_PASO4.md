@@ -9,7 +9,7 @@
 ## 1. Objetivo
 
 Desplegar la aplicación en una instancia **AWS EC2** utilizando la imagen publicada en Docker Hub durante el PASO 3.
-
+h
 ```
 push main
    ↓
