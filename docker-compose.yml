@@ -1,33 +1,121 @@
 services:
+  # ──────────────────────────────────────────────────
+  # API Flask — imagen publicada en Docker Hub
+  # ──────────────────────────────────────────────────
   app:
-    build: .
+    image: andresmancera/mi-api:${IMAGE_TAG:-latest}
     container_name: legacyapp
     restart: unless-stopped
     env_file: .env
-    ports:
-      - "${PORT:-5050}:5050"
-    depends_on:
-      - db
+    environment:
+      DB_HOST: mysql
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5050/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
-      - internal
+      proxy:
+        aliases:
+          - app
+      internal:
+        aliases:
+          - app
 
-  db:
+  # ──────────────────────────────────────────────────
+  # MySQL — solo red interna
+  # ──────────────────────────────────────────────────
+  mysql:
     image: mysql:8.0
     container_name: legacydb
     restart: unless-stopped
+    env_file: .env
     environment:
-      MYSQL_ROOT_PASSWORD: root_secret_change_me
-      MYSQL_DATABASE: legacydb
-      MYSQL_USER: appuser
-      MYSQL_PASSWORD: change_me
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASS}
     volumes:
-      - db_data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - internal
+    command: --default-authentication-plugin=mysql_native_password
 
+  # ──────────────────────────────────────────────────
+  # Nginx Proxy Manager — reverse proxy (80/443 públicos)
+  # ──────────────────────────────────────────────────
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:81:81"
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      proxy:
+        aliases:
+          - nginx-proxy-manager
+    depends_on:
+      app:
+        condition: service_healthy
+      dozzle:
+        condition: service_started
+      uptime-kuma:
+        condition: service_started
+
+  # ──────────────────────────────────────────────────
+  # Dozzle — visor de logs (solo vía NPM)
+  # ──────────────────────────────────────────────────
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      proxy:
+        aliases:
+          - dozzle
+
+  # ──────────────────────────────────────────────────
+  # Uptime Kuma — monitorización (solo vía NPM)
+  # ──────────────────────────────────────────────────
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - kuma_data:/app/data
+    networks:
+      proxy:
+        aliases:
+          - uptime-kuma
+
+# ──────────────────────────────────────────────────
+# REDES DOCKER
+# ──────────────────────────────────────────────────
 networks:
+  proxy:
+    driver: bridge
   internal:
     driver: bridge
 
+# ──────────────────────────────────────────────────
+# VOLÚMENES (persistencia)
+# ──────────────────────────────────────────────────
 volumes:
-  db_data:
+  mysql_data:
+  npm_data:
+  npm_letsencrypt:
+  kuma_data:

@@ -182,3 +182,50 @@ jobs:
           echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
             [ -n "$tag" ] && docker push "$tag"
           done
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 6: Despliegue a EC2 vía SSH (solo push a main)
+  # ──────────────────────────────────────────────────────────
+  # IMPORTANTE:
+  #   - No hace rebuild. Usa la misma imagen publicada en Docker Hub.
+  #   - Copia docker-compose.yml al EC2 vía SCP.
+  #   - Ejecuta docker pull + docker compose up -d en la EC2.
+  #   - Requiere secrets: SERVER_HOST, SERVER_USER, SERVER_SSH_KEY.
+  # ──────────────────────────────────────────────────────────
+  deploy-ec2:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: [test, security-scan, trivy-scan, publish-dockerhub]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Copy compose to EC2
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "~/deploy/"
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_TAG
+          script: |
+            set -e
+            mkdir -p ~/deploy
+            cd ~/deploy
+            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
+            docker compose -f docker-compose.yml pull
+            docker compose -f docker-compose.yml up -d --remove-orphans
+            echo "Deploy completado exitosamente"

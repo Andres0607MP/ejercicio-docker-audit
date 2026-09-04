@@ -1,5 +1,5 @@
 ============================================================
-HASLOTUXD.TXT — Guía paso a paso para el PASO 3
+HASLOTUXD.TXT — Guía paso a paso PASO 3 + PASO 4
 ============================================================
 
 IMPORTANTE: Este archivo es una guía para TI, no es documentación
@@ -28,17 +28,19 @@ PARTE 1: Git local — preparar el repositorio
    git check-ignore .env
    (debe devolver ".env" → está ignorado ✓)
 
-4. Prepara el commit:
+4. Preparar el commit:
 
    git add .
    git add .github/
    git add bandit.yaml
    git add .trivyignore
    git add requirements-dev.txt
+   git add docker-compose.yml
+   git add REPORT_PASO4.md
 
 5. Haz el commit:
 
-   git commit -m "Paso 3: CI/CD con pytest, bandit, trivy y Docker Hub"
+   git commit -m "Paso 4: Infraestructura y despliegue EC2 (docker-compose.yml)"
 
 6. Haz push a GitHub:
 
@@ -67,12 +69,14 @@ PARTE 2: Verificar el workflow en GitHub
     - docker-build (Docker Build)          ← construcción de imagen
     - trivy-scan (Trivy Vulnerability Scan) ← escaneo de imagen
     - publish-dockerhub (Publish to Docker Hub) ← PUBLICACIÓN (solo push a main)
+    - deploy-ec2 (Deploy to EC2)           ← DESPLIEGUE (solo push a main)
 
     ORDEN DE EJECUCIÓN:
     1. test y security-scan corren en paralelo
     2. docker-build espera a test + security-scan
     3. trivy-scan espera a docker-build
     4. publish-dockerhub espera a trivy-scan (solo push a main)
+    5. deploy-ec2 espera a publish-dockerhub (solo push a main)
 
 12. Un job con check verde ✓ = éxito.
     Un job con cuadro rojo ✗ = falló.
@@ -185,16 +189,20 @@ directamente dentro de:
 PARTE 4: .env y .env.example
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-32. .env.example es la plantilla. Contiene:
+32. .env.example es la plantilla de producción. Contiene:
 
-   DB_HOST=db
-   DB_PORT=3306
-   DB_USER=appuser
-   DB_PASS=change_me
-   DB_NAME=legacydb
-   PORT=5050
+    # Base de datos
+    DB_HOST=mysql
+    DB_PORT=3306
+    DB_USER=appuser
+    DB_PASS=change_me_in_ec2
+    DB_NAME=legacydb
+    MYSQL_ROOT_PASSWORD=change_me_in_ec2
 
-   NO contiene secretos reales. Puedes copiarla como plantilla.
+    # Docker Hub
+    IMAGE_TAG=latest
+
+    NO contiene secretos reales. Copia como plantilla en la EC2.
 
 33. .env es el archivo REAL con credenciales.
     - Existe localmente para docker compose
@@ -360,50 +368,221 @@ MANUAL (tú debes hacer esto):
 5. Revisar los resultados en GitHub Actions si algo falla
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 10: Paso 4 — Despliegue en EC2 (NO implementar todavía)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 10: PASO 4 — Despliegue en EC2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ATENCIÓN: Lo siguiente es para el PASO 4. NO lo implementes todavía.
+PARTE 10.1: Flujo completo PASO 3 + PASO 4
 
-Lo que ya tienes:
-  ✅ Instancia EC2 creada (ya existe)
-  ✅ Imagen publicada en Docker Hub: andresmancera/mi-api
+  push a main
+    ↓
+  pytest
+    ↓
+  Bandit
+    ↓
+  Docker build (único)
+    ↓
+  docker save → artefacto .tar
+    ↓
+  Trivy escanea EXACTAMENTE esa imagen
+    ↓
+  Docker Hub (andresmancera/mi-api:<sha>)
+    ↓
+  SSH EC2 (deploy-ec2 job)
+    ↓
+  docker compose -f docker-compose.yml pull
+    ↓
+  docker compose -f docker-compose.yml up -d
 
-Lo que necesitarás para el Paso 4:
-  - IP / DNS público de tu instancia EC2 (ya existe)
-  - Usuario SSH (ej: "ubuntu")
-  - Clave SSH privada (como GitHub Secret: SERVER_SSH_KEY)
-  - Docker instalado en la EC2
-  - Docker Compose instalado en la EC2
-  - Acceso de salida desde EC2 hacia Docker Hub (puerto 443)
-  - Login de EC2 contra Docker Hub (docker login)
-  - docker-compose.yml de producción
-  - .env de producción con credenciales reales
-  - Reverse proxy (Nginx Proxy Manager)
-  - HTTPS / Let's Encrypt
-  - DNS y subdominios (api, dozzle, kuma)
+PARTE 4: Docker Hub → EC2 → Docker Compose → Aplicación
 
-Secrets que crearás en el PASO 4:
-  - SERVER_HOST      → IP o DNS de la EC2
-  - SERVER_USER      → usuario SSH (ej: ubuntu)
-  - SERVER_SSH_KEY   → clave privada SSH
+PARTE 10.2: Docker Hub Access Token (crear ahora)
 
-NO implementes nada de lo anterior en este PASO 3.
+  36. Entra a https://hub.docker.com
+  37. Haz clic en tu avatar → "Account Settings" → pestaña "Security"
+  38. Haz clic en "New Access Token"
+  39. Nombre: "github-actions"
+  40. Permisos: read:packages, write:packages
+  41. Haz clic en "Generate" → COPIA el token
+  42. GitHub → Settings → Secrets → Actions → New repository secret
+  43. DOCKER_PASSWORD = [el token]
+  44. DOCKER_USERNAME = "andresmancera"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RECORDATORIO FINAL
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 10.3: Secrets para EC2 (PASO 4 — crear cuando tengas datos reales)
 
-⚠ NO hagas deploy en EC2 todavía.
-⚠ NO agregues SSH, SERVER_HOST, SERVER_USER, SERVER_SSH_KEY al workflow.
-⚠ NO agregues Nginx Proxy Manager.
-⚠ NO agregues HTTPS ni Let's Encrypt.
-⚠ NO configures subdominios (api, dozzle, kuma).
-⚠ NO configures firewall de EC2.
+  ┌──────────────────┬──────────────────────────────────────────────┐
+  │ Secret           │ Valor (NO inventar)                            │
+  ├──────────────────┼──────────────────────────────────────────────┤
+  │ SERVER_HOST      │ IP pública o DNS de tu EC2                     │
+  │ SERVER_USER      │ Usuario SSH (ej: "ubuntu")                    │
+  │ SERVER_SSH_KEY   │ Clave privada SSH (contenido del .pem)        │
+  └──────────────────┴──────────────────────────────────────────────┘
 
-Este PASO 3 deja preparado:
-  - El pipeline CI/CD (pytest, Bandit, Docker Build, Trivy)
-  - La publicación de imágenes en Docker Hub
-  - Las secrets para el futuro deploy (DOCUMENTADAS)
+  ⚠ NO crear estas secrets todavía. Espera hasta tener:
+  - La IP real de la EC2
+  - El usuario SSH real
+  - La clave privada SSH real
 
-El despliegue REAL en EC2 será el PASO 4.
+PARTE 10.4: Diferencia entre tipos de credenciales
+
+  A. CREDENCIALES LOCALES (tu PC):
+     - docker login (ya hecho)
+     - .env local para docker compose dev
+
+  B. SECRETS DE GITHUB ACTIONS:
+     - DOCKER_USERNAME → "andresmancera" (Docker Hub)
+     - DOCKER_PASSWORD → Access Token (Docker Hub)
+     - SERVER_HOST, SERVER_USER, SERVER_SSH_KEY → EC2
+     - Estos van en: GitHub → Settings → Secrets → Actions
+     - NUNCA aparecen en el código ni en el YAML.
+
+  C. CREDENCIALES EC2 (dentro de la máquina):
+     - .env de producción dentro de la EC2
+     - docker login en la EC2 (para pull si imagen privada)
+     - Estas viven en la instancia, no en GitHub ni en tu PC.
+
+  REGLA DE ORO: Nunca copiar credenciales dentro de:
+    ❌ ci-cd.yml
+    ❌ Dockerfile
+    ❌ docker-compose.yml / docker-compose.yml
+    ❌ código Python (app.py)
+    ❌ repositorio Git (.env)
+
+PARTE 10.5: Inicializar EC2 (comandos manuales)
+
+  > Ejecuta estos comandos MANUALMENTE en tu EC2.
+  > NO los ejecutes desde aquí.
+
+  Paso 1: SSH a la instancia
+    ssh -i <tu-clave.pem> <EC2_USER>@<EC2_PUBLIC_IP>
+
+  Paso 2: Instalar Docker
+    curl -fsSL https://get.docker.com | sh
+    sudo usermod -aG docker $USER
+    # Sal y vuelve a entrar (logout/login)
+
+  Paso 3: Instalar Docker Compose
+    sudo apt-get update
+    sudo apt-get install docker-compose-plugin
+    # Verificar:
+    docker --version
+    docker compose version
+
+  Paso 4: Preparar directorio
+    mkdir -p ~/deploy && cd ~/deploy
+
+  Paso 5: Copiar archivos desde tu PC
+    scp -i <tu-clave.pem> docker-compose.yml \
+      <EC2_USER>@<EC2_PUBLIC_IP>:~/deploy/
+
+  Paso 6: Crear .env en la EC2 (con credenciales reales)
+    cat > .env << 'EOF'
+    DB_HOST=mysql
+    DB_PORT=3306
+    DB_USER=appuser
+    DB_PASS=<password-real>
+    DB_NAME=legacydb
+    MYSQL_ROOT_PASSWORD=<root-password-real>
+    IMAGE_TAG=latest
+    EOF
+
+  Paso 7: Docker login (si imagen privada)
+    docker login -u "andresmancera" -p "<access-token>"
+
+  Paso 8: Levantar stack
+    cd ~/deploy
+    docker compose -f docker-compose.yml up -d
+
+  Paso 9: Verificar
+    docker compose -f docker-compose.yml ps
+    docker compose -f docker-compose.yml logs -f app
+
+PARTE 10.6: Deploy automático via GitHub Actions
+
+  El workflow ahora incluye el job "deploy-ec2":
+
+    1. Copia docker-compose.yml al EC2 (via appleboy/scp-action)
+    2. SSH ejecuta: docker login → docker pull → docker compose up -d
+    3. Solo corre en push a main (no en PRs)
+    4. Depende de: test, security-scan, trivy-scan, publish-dockerhub
+
+  Para que funcione, debes crear en GitHub Secrets:
+    SERVER_HOST    → IP o DNS de la EC2
+    SERVER_USER    → usuario SSH
+    SERVER_SSH_KEY → clave privada SSH (contenido completo del .pem)
+
+  El job NO hardcodea ninguna credencial.
+  Las credenciales de Docker Hub se pasan como env vars seguras.
+
+  NO se ejecuta el deploy hasta que configures esas secrets.
+
+PARTE 10.7: Nginx Proxy Manager
+
+  Puertos:
+    80  → HTTP  (público, para Let's Encrypt)
+    443 → HTTPS (público, tráfico cifrado)
+    81  → Admin (localhost solo, NO público)
+
+  Primer acceso (via SSH tunnel):
+    ssh -L 8181:localhost:81 <EC2_USER>@<EC2_PUBLIC_IP>
+    Abrir: http://localhost:8181
+    Login: admin@example.com / changeme
+    Cambiar password inmediatamente
+
+  Configurar proxy:
+    NPM UI → Proxy Manager → Add Proxy Host:
+    - api.<domain>  → Forward IP: app, Port: 5050
+    - dozzle.<domain> → Forward IP: dozzle, Port: 9999
+    - kuma.<domain> → Forward IP: uptime-kuma, Port: 3001
+
+PARTE 10.8: AWS Security Group
+
+  ABRIR:
+    22  → 0.0.0.0/0 o IP administrativa (SSH)
+    80  → 0.0.0.0/0 (HTTP para NPM)
+    443 → 0.0.0.0/0 (HTTPS para NPM)
+
+  NO ABRIR:
+    3306  (MySQL — solo red internal)
+    5050  (API Flask — solo NPM proxyea)
+    81    (NPM admin — solo localhost)
+    9999  (Dozzle — solo NPM)
+    3001  (Kuma — solo NPM)
+
+PARTE 10.9: Certificados HTTPS (Let's Encrypt)
+
+  NPM gestiona certificados automáticamente:
+    1. DNS apuntando a IP EC2
+    2. NPM → Proxy Host → Editar → SSL → "Request a new SSL Certificate"
+    3. NPM solicita a Let's Encrypt
+    4. Certificado guardado en volumen npm_letsencrypt
+
+  NO inventar certificados ni claves.
+  NO almacenar claves privadas en Git.
+
+PARTE 10.10: Rollback
+
+  Strategy: tags inmutables por commit SHA.
+
+  Rollback:
+    cd ~/deploy
+    docker compose -f docker-compose.yml up -d IMAGE_TAG=<sha-anterior>
+
+  El valor IMAGE_TAG sobreescribe el .env (usa ${IMAGE_TAG:-latest}).
+
+PARTE 10.11: Verificaciones finales
+
+  En EC2:
+    docker compose -f docker-compose.yml ps
+    curl -H "Host: api.<domain>" http://localhost:80/health → "OK"
+
+  En GitHub:
+    1. Push a main
+    2. Actions → 6 jobs verdes ✓
+    3. Docker Hub → andresmancera/mi-api → tags
+
+  Evidencias:
+    - Screenshot: 6 jobs verdes en GitHub Actions
+    - Screenshot: imagen en Docker Hub
+    - Screenshot: docker ps en EC2
+    - Screenshot: curl /health → OK
+    - Screenshot: certificado SSL activo
