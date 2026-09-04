@@ -1,247 +1,314 @@
 ============================================================
-HASLOTUXD.TXT — Guía paso a paso para subir el proyecto a GitHub
-y validar el pipeline CI/CD (PASO 3)
+HASLOTUXD.TXT — Guía paso a paso para el PASO 3
 ============================================================
 
-IMPORTANTE: Este archivo es una guía para TI, no es documentación técnica.
-Sigue los pasos exactamente en orden. No inventes nada.
+IMPORTANTE: Este archivo es una guía para TI, no es documentación
+técnica. Sigue los pasos exactamente en orden.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 1: Verificar el repositorio local antes del primer push
+PARTE 1: Git local — preparar el repositorio
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. Abre una terminal en la carpeta del proyecto:
+
    cd /home/andres/Documentos/SENA/5_Trimestre/Evidencia_21-7/labs/ejercicio-docker-audit
 
-2. Ejecuta este comando para ver el estado de Git:
+2. Revisa el estado de Git:
+
    git status
 
-   Debería mostrarte algo como:
-   - Archivos sin hacer commit (como app.py, Dockerfile, etc.)
-   - Un mensaje que diga "nothing to commit, working tree clean" si ya
-     hiciste commit.
+   Deberías ver los archivos pendientes de commit.
 
-3. Si hay archivos sin commit, haz el primer commit:
+3. Verifica que .env NO esté en el commit:
+
+   git status
+   git diff --cached --name-only | grep .env
+   (si NO devuelve nada, está correcto)
+
+   git check-ignore .env
+   (debe devolver ".env" → está ignorado ✓)
+
+4. Prepara el commit:
+
    git add .
-   git commit -m "Paso 3: CI/CD pipeline con pytest, bandit, trivy y GHCR"
+   git add .github/
+   git add bandit.yaml
+   git add .trivyignore
+   git add requirements-dev.txt
 
-   IMPORTANTE: Verifica que .env NO esté en el commit:
-   git status
-   git diff --cached --name-only
+5. Haz el commit:
 
-   Si ves ".env" en esa lista, algo está mal. NO debe aparecer.
-   El .env está en .gitignore y NO debe subirse jamás.
+   git commit -m "Paso 3: CI/CD con pytest, bandit, trivy y Docker Hub"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 2: Hacer el primer push a GitHub
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. Haz push a GitHub:
 
-4. Crea un repositorio nuevo en GitHub:
-   - Ve a github.com
-   - Haz clic en "New repository"
-   - Ponle un nombre (ej: ejercicio-docker-audit)
-   - Déjalo como público o privado (lo que prefieras)
-   - NO marques "Add a README" ni "Add .gitignore" ni "Add license"
-   - Haz clic en "Create repository"
+   git push origin main
 
-5. GitHub te mostrará dos comandos. Copia y pega EXACTAMENTE estos:
-
-   git remote add origin https://github.com/TU_USUARIO/ejercicio-docker-audit.git
-   git branch -M main
-   git push -u origin main
-
-   NOTA: Reemplaza "TU_USUARIO" con tu nombre de usuario de GitHub.
-   Si ya existe un remote origin, usa:
-   git remote set-url origin https://github.com/TU_USUARIO/ejercicio-docker-audit.git
-
-6. Verifica que el push funcionó:
-   git log --oneline -3
-   git remote -v
+   IMPORTANTE: Debes hacer push a la rama "main" para que
+   se ejecute el job "publish-dockerhub" y se publique la imagen.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 3: Verificar que el workflow aparece en GitHub
+PARTE 2: Verificar el workflow en GitHub
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-7. En GitHub, entra al repositorio que acabas de crear.
+7. Entra al repositorio en GitHub:
+   https://github.com/TU_USUARIO/ejercicio-docker-audit
+
 8. Haz clic en la pestaña "Actions".
+
 9. Deberías ver el workflow llamado "CI/CD Pipeline".
-10. Si hiciste push a "main", el workflow debería ejecutarse automáticamente.
-11. Haz clic en el nombre del workflow para ver los jobs:
-    - test (Pytest)
-    - security-scan (Bandit)
-    - docker-build (Docker Build)
-    - trivy-scan (Trivy Vulnerability Scan)
-    - publish-ghcr (Publish to GHCR) ← SOLO en push a main
 
-    NOTA: El job "publish-ghcr" no se ejecutará en Pull Requests.
-    Solo se ejecuta cuando haces push directamente a la rama "main".
+10. Si hiciste push a "main", el workflow se ejecuta automáticamente.
+
+11. Jobs que aparecerán (en orden):
+
+    - test (Pytest)                        ← tests unitarios
+    - security-scan (Bandit)               ← escaneo de código
+    - docker-build (Docker Build)          ← construcción de imagen
+    - trivy-scan (Trivy Vulnerability Scan) ← escaneo de imagen
+    - publish-dockerhub (Publish to Docker Hub) ← PUBLICACIÓN (solo push a main)
+
+    ORDEN DE EJECUCIÓN:
+    1. test y security-scan corren en paralelo
+    2. docker-build espera a test + security-scan
+    3. trivy-scan espera a docker-build
+    4. publish-dockerhub espera a trivy-scan (solo push a main)
+
+12. Un job con check verde ✓ = éxito.
+    Un job con cuadro rojo ✗ = falló.
+    Si falla algo, haz clic en el job y revisa los logs.
+
+13. IMPORTANTE sobre la imagen:
+    - docker-build construye una sola vez (Build Único)
+    - docker save guarda la imagen como .tar artefacto
+    - trivy-scan carga el .tar y escanea
+    - publish-dockerhub carga el MISMO .tar y publica en Docker Hub
+    - NO hay un segundo build
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 4: Secrets y Variables de GitHub (¿NECESARIOS?)
+Secrets y variables de GitHub
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-12. Ve a: GitHub → tu repositorio → Settings → Actions →
+14. Ve a: GitHub → tu repositorio → Settings → Actions →
     "Secrets and variables" → "Actions"
 
-13. NO necesitas crear ningún secret manualmente para GHCR.
-    El workflow usa ${{ secrets.GITHUB_TOKEN }} que es un token
-    automático que GitHub genera para cada workflow.
-    NO DEBES crear un Personal Access Token (PAT) a menos que
-    sea estrictamente necesario.
+15. Secrets que NECESITAS CREAR AHORA (Step 3):
 
-14. El GITHUB_TOKEN ya tiene los permisos necesarios porque en el
-    workflow se declaró:
-      permissions:
-        contents: read
-        packages: write
+    ┌──────────────────┬─────────────────────────────────────────────┐
+    │ Secret           │ ¿Para qué?                                    │
+    ├──────────────────┼─────────────────────────────────────────────┤
+    │ DOCKER_USERNAME  │ Tu usuario de Docker Hub (andresmancera)    │
+    │ DOCKER_PASSWORD  │ Access Token de Docker Hub (NO tu password) │
+    └──────────────────┴─────────────────────────────────────────────┘
 
-    Esto permite:
-    - contents: read → leer el código del repositorio
-    - packages: write → subir imágenes a GHCR
+    IMPORTANTE:
+    - DOCKER_USERNAME = "andresmancera" (tu usuario de Docker Hub)
+    - DOCKER_PASSWORD = un Access Token de Docker Hub (no tu password)
 
-    NO necesitas crear ningún secret adicional.
+16. Secrets que dejas PREPARADAS para el PASO 4 (EC2):
 
-15. NO DEBES crear estos secrets (no son necesarios):
-    ❌ DB_HOST, DB_PASS, DB_USER, DB_NAME (no se usan en CI)
-    ❌ AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (no se usa AWS)
-    ❌ Ningún secret de base de datos
+    Estas secrets NO se usan todavía en el workflow.
+    CREA ESTAS SECRETS cuando empieces el PASO 4.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 5: Cómo verificar que la imagen se publicó en GHCR
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ┌──────────────────┬─────────────────────────────────────────────────┐
+    │ Secret           │ ¿Para qué? (PASO 4)                             │
+    ├──────────────────┼─────────────────────────────────────────────────┤
+    │ SERVER_HOST      │ IP pública o DNS de la instancia EC2            │
+    │ SERVER_USER      │ Usuario SSH de la AMI (ej: "ubuntu")            │
+    │ SERVER_SSH_KEY   │ Clave privada SSH para acceder a la EC2         │
+    └──────────────────┴─────────────────────────────────────────────────┘
 
-16. Después de que el workflow termine en GitHub Actions:
-    - Entra a la pestaña "Actions"
-    - Haz clic en el workflow más reciente
-    - Busca el job "publish-ghcr"
-    - Si tiene un check verde ✓, la imagen se publicó
-
-17. Para verificar manualmente:
-    - En GitHub, entra a tu repositorio
-    - Haz clic en "Packages" (en la pestaña principal del repo)
-    - Deberías ver un paquete llamado "ghcr.io/TU_USUARIO/ejercicio-docker-audit"
-    - Haz clic y verás los tags (commits SHA, branch name, latest)
-
-18. El nombre exacto de la imagen será:
-    ghcr.io/<TU_USUARIO>/ejercicio-docker-audit:<tag>
-
-    Donde <tag> puede ser:
-    - El SHA del commit (ej: abc123...)
-    - "main" (si se hace push a la rama principal)
-    - "latest" (si es la rama principal)
+    ⚠ NO crees estas secrets ahora. Espera al PASO 4.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 6: Cómo revisar los logs de cada job
+Cómo crear el Docker Hub Access Token
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-19. En GitHub → Actions → haz clic en el workflow run
-20. Haz clic en el job que quieras revisar:
-    - "test" → ve a "Ejecutar tests" → ves la salida de pytest
-    - "security-scan" → ves la salida de Bandit
-    - "docker-build" → ves el progreso del build de Docker
-    - "trivy-scan" → ves los resultados de Trivy
-    - "publish-ghcr" → ves el login y push a GHCR
+17. Entra a https://hub.docker.com
+18. Haz clic en tu avatar → "Account Settings" → pestaña "Security"
+19. Haz clic en "New Access Token"
+20. Ponle un nombre: "github-actions"
+21. Selecciona permisos:
+    - read:packages ✅
+    - write:packages ✅
+    - delete:packages (opcional)
+22. Haz clic en "Generate"
+23. Copia el token COMPLETO (solo se muestra una vez)
+24. NO lo compartas ni lo guardes en el repositorio
+25. Ve a GitHub → Settings → Secrets and variables → Actions
+26. Haz clic en "New repository secret"
+27. Nombre: DOCKER_PASSWORD
+28. Valor: pega el token que copiaste
+29. Haz clic en "Add secret"
 
-21. Si algo falla, haz clic en el job fallido y revisa:
-    - El paso que falló (tiene un cuadro rojo)
-    - Haz clic en "View details" o "Logs"
-    - La salida mostrará el error exacto
+30. Luego crea el otro secret:
+    - Nombre: DOCKER_USERNAME
+    - Valor: andresmancera
+    - Haz clic en "Add secret"
+
+31. Para verificar que los secrets existen:
+    - Aparecerán en la lista con un ojo tachado 👁️
+    - Haz clic en el ojo para ver/ocultar el valor
+    - El valor NO aparece en logs de GitHub Actions
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 3: Diferencia entre tres tipos de credenciales
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A. CREDENCIALES LOCALES (tu PC):
+   - docker login (ya hecho: "Login Succeeded")
+   - .env en la carpeta del proyecto (para docker compose local)
+   - Estas NO van en GitHub, solo en tu máquina.
+
+B. SECRETS DE GITHUB ACTIONS (repositorio GitHub):
+   - DOCKER_USERNAME → "andresmancera"
+   - DOCKER_PASSWORD → Access Token de Docker Hub
+   - Estos van en: GitHub → Settings → Secrets and variables → Actions
+   - Se usan durante el job "publish-dockerhub"
+   - NUNCA aparecen en el código ni en el YAML.
+
+C. CREDENCIALES DE LA INSTANCIA EC2 (dentro de la máquina):
+   - .env de producción dentro de la EC2
+   - docker login en la EC2 (para pull de imágenes privadas)
+   - Estas viven en la instancia, no en GitHub ni en tu PC.
+
+REGLA DE ORO:
+Nunca copies passwords, tokens, claves privadas o credenciales
+directamente dentro de:
+  ❌ ci-cd.yml
+  ❌ Dockerfile
+  ❌ docker-compose.yml
+  ❌ código Python (app.py)
+  ❌ repositorio Git (.env)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 4: .env y .env.example
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+32. .env.example es la plantilla. Contiene:
+
+   DB_HOST=db
+   DB_PORT=3306
+   DB_USER=appuser
+   DB_PASS=change_me
+   DB_NAME=legacydb
+   PORT=5050
+
+   NO contiene secretos reales. Puedes copiarla como plantilla.
+
+33. .env es el archivo REAL con credenciales.
+    - Existe localmente para docker compose
+    - NO está en Git (.gitignore lo excluye)
+    - NO debe subirse jamás
+    - En PASO 4, se creará un .env en la EC2
+
+34. Para comprobar que .env está ignorado:
+    git check-ignore .env
+    (debe devolver ".env" → está ignorado ✓)
+    git ls-files .env
+    (debe dar error → no está trackeado ✓)
+
+35. Importante: Docker Hub Access Token se guarda como GitHub Secret,
+    NO en .env. El .env solo contiene credenciales de la BD.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 5: Docker Hub — cómo verificar que la imagen se publicó
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+36. Después de un push a "main":
+    - Entra a GitHub → tu repositorio → pestaña "Actions"
+    - Busca el workflow run más reciente
+    - Busca el job "publish-dockerhub" → debe tener check verde ✓
+
+37. Para ver la imagen publicada:
+    - Entra a https://hub.docker.com
+    - Inicia sesión con tu usuario (andresmancera)
+    - Ve a "Repositories"
+    - Deberías ver: "andresmancera/mi-api"
+    - Haz clic y verás los tags disponibles
+
+38. Tags de la imagen:
+    - andresmancera/mi-api:<commit-SHA>  ← tag único por commit
+    - andresmancera/mi-api:main         ← tag de rama
+    - andresmancera/mi-api:latest       ← tag latest (solo main)
+
+39. Para comprobar desde tu PC:
+    docker pull andresmancera/mi-api:latest
+    (o docker run andresmancera/mi-api:latest)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 6: Pull Request vs Push a rama principal
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+40. Pull Request (PR):
+    - Trabajas en una rama: git checkout -b mi-rama
+    - Haces commit y push: git push origin mi-rama
+    - Creas un PR en GitHub (pestaña "Pull requests" → "New pull request")
+    - El workflow corre: test, security-scan, docker-build, trivy-scan
+    - El job "publish-dockerhub" NO se ejecuta en PRs
+    - Si todos los checks pasan (verdes), puedes hacer merge
+
+41. Push a rama principal (main):
+    - git checkout main
+    - git merge mi-rama (o directamente en main)
+    - git push origin main
+    - El workflow corre TODO incluyendo publish-dockerhub
+    - La imagen se publica en Docker Hub
+
+42. Recomendación:
+    - Usa PRs para validar cambios
+    - Solo haz push a main cuando todo esté verde
+    - Siempre haz push a main cuando quieras publicar una imagen
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PARTE 7: Qué hacer si algo falla
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-22. Si falla "test" (Pytest):
-    - Revisa que todos los tests pasen localmente:
+43. Si falla "test" (Pytest):
+    - Ejecuta localmente:
+      pip install -r requirements-dev.txt
       pytest -v
     - Corrige los tests que fallen
     - Commitea y haz push de nuevo
 
-23. Si falla "security-scan" (Bandit):
-    - Revisa localmente:
+44. Si falla "security-scan" (Bandit):
+    - Ejecuta localmente:
       bandit -r . -x './.venv,./venv,./.git' -c bandit.yaml
-    - Si hay nuevos hallazgos, corrígelos en el código
-    - No agregues "|| true" para ocultar errores
+    - Si hay nuevos hallazgos reales, corrígelos
+    - No uses "|| true" para ocultar errores
 
-24. Si falla "docker-build":
-    - Revisa localmente:
+45. Si falla "docker-build":
+    - Ejecuta localmente:
       docker compose build
     - Asegúrate de que el Dockerfile funcione
-    - Verifica que .dockerignore excluya archivos innecesarios
+    - Verifica .dockerignore
 
-25. Si falla "trivy-scan":
+46. Si falla "trivy-scan":
     - Ejecuta localmente:
-      trivy image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed legacyapp:latest
-    - Si aparecen vulnerabilidades HIGH/CRITICAL nuevas:
-      a) Actualiza las dependencias en requirements.txt
-      b) O agrega el CVE al .trivyignore con explicación
-    - Las CVEs listadas en .trivyignore son falsos positivos
-      o de paquetes del base image sin fix disponible
+      docker build -t mi-api:test .
+      trivy image --scanners vuln --severity CRITICAL,HIGH \
+        --ignore-unfixed --ignorefile .trivyignore mi-api:test
+    - Si hay CVEs nuevas HIGH/CRITICAL con fix disponible:
+      a) Actualiza dependencias en requirements.txt
+      b) O agrega la CVE al .trivyignore con explicación
+    - Las CVEs en .trivyignore son falsos positivos o base image
 
-26. Si falla "publish-ghcr":
-    - Verifica que el push sea a la rama "main" (no a otra rama)
-    - Verifica que los permisos en el workflow sean correctos
-    - El GITHUB_TOKEN se genera automáticamente — no necesitas secret
+47. Si falla "publish-dockerhub":
+    - Verifica que DOCKER_USERNAME y DOCKER_PASSWORD están creados
+    - Verifica que el Access Token de Docker Hub es válido
+    - Verifica que el push fue a "main", no a otra rama
+    - Revisa los logs del job "publish-dockerhub"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 8: Qué NO debes subir nunca
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-27. NUNCA subas estos archivos al repositorio:
-    ❌ .env (contiene credenciales reales)
-    ❌ bandit-results.json y bandit-results.txt (resultados de auditoría)
-    ❌ __pycache__/ (archivos compilados)
-    ❌ .pytest_cache/ (cache de tests)
-    ❌ .venv/ (entorno virtual local)
-
-28. Puedes verificarlo con:
-    git status
-    # .env, bandit-results.* NO deben aparecer
-
-29. Para verificar qué archivos están trackeados:
-    git ls-files
+48. Si el workflow NO aparece en GitHub:
+    - Verifica que el archivo esté en: .github/workflows/ci-cd.yml
+    - Verifica que el nombre del archivo tenga extensión .yml
+    - Haz un nuevo push para forzar la detección
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 9: Cómo volver a ejecutar el pipeline
+PARTE 8: Qué archivos deben estar en Git
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-30. Después de corregir algo:
-    git add .
-    git commit -m "Descripción del cambio"
-    git push origin main
-
-    El workflow se ejecutará automáticamente.
-
-31. Para provocar manualmente un workflow run:
-    - En GitHub → Actions → CI/CD Pipeline → "Run workflow" dropdown
-    - O simplemente haz push.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 10: Pull Request vs Push a rama principal
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-32. Pull Request (PR):
-    - Trabajas en una rama (ej: feature/security-fixes)
-    - Creas un PR pidiendo merge a "main"
-    - El workflow corre: test, security-scan, docker-build, trivy-scan
-    - El job "publish-ghcr" NO se ejecuta (es solo para push a main)
-    - Si todos los checks pasan, puedes hacer merge
-
-33. Push a rama principal (main):
-    - Haces push directamente a "main"
-    - El workflow corre: test, security-scan, docker-build, trivy-scan, publish-ghcr
-    - La imagen se publica en GHCR
-    - Usado para releases
-
-34. Recomendación académica:
-    - Usa ramas para trabajo normal
-    - Solo haz push a "main" cuando todo funcione
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 11: Estructura de archivos que deben estar en Git
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-35. Estos archivos DEBEN estar en Git (tracked):
+49. Archivos que DEBEN estar en Git:
     ✅ app.py
     ✅ test_app.py
     ✅ requirements.txt
@@ -257,47 +324,86 @@ PARTE 11: Estructura de archivos que deben estar en Git
     ✅ AUDITORIA_BANDIT.md
     ✅ REPORT_PASO2.md
     ✅ REPORT_PASO3.md
+    ✅ haslotuxd.txt
 
-36. Estos archivos NO deben estar en Git (ignored):
+50. Archivos que NO deben estar en Git:
     ❌ .env
+    ❌ .env.local
+    ❌ .env.production
     ❌ bandit-results.json
     ❌ bandit-results.txt
     ❌ __pycache__/
     ❌ .pytest_cache/
     ❌ .venv/
 
-37. Para verificar:
-    git ls-files                    # archivos trackeados
-    git status                      # archivos sin trackear/modificados
-    git check-ignore .env           # debería devolver ".env" (está ignorado)
+51. Verificación rápida:
+    git ls-files                     # archivos trackeados
+    git status                       # archivos sin trackear
+    git check-ignore .env            # debería devolver ".env"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARTE 12: Resumen rápido de qué es automático vs manual
+PARTE 9: Resumen rápido de qué es automático vs manual
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-AUTOMÁTICO (no necesitas hacer nada después del push):
+AUTOMÁTICO (después del push):
 - pytest corre en CI
 - Bandit corre en CI
 - Docker build corre en CI
 - Trivy corre en CI
-- Imagen se publica en GHCR (solo push a main)
+- Imagen se publica en Docker Hub (solo push a main)
 
 MANUAL (tú debes hacer esto):
 1. Hacer commit y push a GitHub
 2. Crear el repositorio en GitHub (primera vez)
-3. Verificar en la pestaña Actions que el workflow aparece
-4. Revisar los resultados en GitHub Actions si algo falla
+3. Crear DOCKER_USERNAME y DOCKER_PASSWORD como secrets
+4. Verificar en la pestaña Actions que el workflow aparece
+5. Revisar los resultados en GitHub Actions si algo falla
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARTE 10: Paso 4 — Despliegue en EC2 (NO implementar todavía)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ATENCIÓN: Lo siguiente es para el PASO 4. NO lo implementes todavía.
+
+Lo que ya tienes:
+  ✅ Instancia EC2 creada (ya existe)
+  ✅ Imagen publicada en Docker Hub: andresmancera/mi-api
+
+Lo que necesitarás para el Paso 4:
+  - IP / DNS público de tu instancia EC2 (ya existe)
+  - Usuario SSH (ej: "ubuntu")
+  - Clave SSH privada (como GitHub Secret: SERVER_SSH_KEY)
+  - Docker instalado en la EC2
+  - Docker Compose instalado en la EC2
+  - Acceso de salida desde EC2 hacia Docker Hub (puerto 443)
+  - Login de EC2 contra Docker Hub (docker login)
+  - docker-compose.yml de producción
+  - .env de producción con credenciales reales
+  - Reverse proxy (Nginx Proxy Manager)
+  - HTTPS / Let's Encrypt
+  - DNS y subdominios (api, dozzle, kuma)
+
+Secrets que crearás en el PASO 4:
+  - SERVER_HOST      → IP o DNS de la EC2
+  - SERVER_USER      → usuario SSH (ej: ubuntu)
+  - SERVER_SSH_KEY   → clave privada SSH
+
+NO implementes nada de lo anterior en este PASO 3.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RECORDATORIO FINAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠ NO hagas todavía el despliegue en EC2.
-⚠ NO configures Nginx Proxy Manager.
-⚠ NO configures HTTPS ni Let's Encrypt.
+⚠ NO hagas deploy en EC2 todavía.
+⚠ NO agregues SSH, SERVER_HOST, SERVER_USER, SERVER_SSH_KEY al workflow.
+⚠ NO agregues Nginx Proxy Manager.
+⚠ NO agregues HTTPS ni Let's Encrypt.
 ⚠ NO configures subdominios (api, dozzle, kuma).
 ⚠ NO configures firewall de EC2.
-⚠ Eso corresponde al PASO 4.
 
-Este PASO 3 solo deja preparado el pipeline CI/CD y la publicación
-de la imagen en GHCR. El despliegue real en EC2 será en el PASO 4.
+Este PASO 3 deja preparado:
+  - El pipeline CI/CD (pytest, Bandit, Docker Build, Trivy)
+  - La publicación de imágenes en Docker Hub
+  - Las secrets para el futuro deploy (DOCUMENTADAS)
+
+El despliegue REAL en EC2 será el PASO 4.

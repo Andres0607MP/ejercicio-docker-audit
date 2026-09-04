@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # ──────────────────────────────────────────────────────────
@@ -56,12 +55,14 @@ jobs:
         run: bandit -r . -x './.venv,./venv,./.git' -c bandit.yaml
 
   # ──────────────────────────────────────────────────────────
-  # JOB 3: Construcción de imagen Docker
+  # JOB 3: Construcción de imagen Docker (único build)
   # ──────────────────────────────────────────────────────────
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
     needs: [test, security-scan]
+    outputs:
+      image-tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
@@ -69,15 +70,27 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Extract Docker Hub metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: andresmancera/mi-api
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build Docker image (single build, all tags)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           load: true
-          tags: legacyapp:${{ github.sha }}
+          tags: |
+            legacyapp:${{ github.sha }}
+            ${{ steps.meta.outputs.tags }}
 
-      - name: Save image for next job
+      - name: Save image as artifact
         run: |
           docker save legacyapp:${{ github.sha }} -o /tmp/legacyapp.tar
 
@@ -116,12 +129,15 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          ignorefile: .trivyignore
 
   # ──────────────────────────────────────────────────────────
-  # JOB 5: Publicar imagen en GHCR (solo push a rama principal)
+  # JOB 5: Publicar imagen en Docker Hub (solo push a main)
+  # IMPORTANTE: Reutiliza la MISMA imagen escaneada por Trivy.
+  # No hace un segundo build.
   # ──────────────────────────────────────────────────────────
-  publish-ghcr:
-    name: Publish to GHCR
+  publish-dockerhub:
+    name: Publish to Docker Hub
     runs-on: ubuntu-latest
     needs: [test, security-scan, trivy-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -129,31 +145,40 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          name: docker-image
+          path: /tmp
 
-      - name: Extract metadata
+      - name: Load Docker image (same image scanned by Trivy)
+        run: |
+          docker load -i /tmp/legacyapp.tar
+
+      - name: Extract Docker Hub metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: andresmancera/mi-api
           tags: |
             type=sha,format=long
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push to GHCR
-        uses: docker/build-push-action@v6
+      - name: Tag image for Docker Hub
+        run: |
+          echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
+            [ -n "$tag" ] && docker tag legacyapp:${{ github.sha }} "$tag"
+          done
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Push image to Docker Hub
+        run: |
+          echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
+            [ -n "$tag" ] && docker push "$tag"
+          done

@@ -1,4 +1,4 @@
-# PASO 3 — CI/CD + Seguridad Automatizada + Docker Registry
+# PASO 3 — CI/CD + Seguridad Automatizada + Docker Hub
 
 **Proyecto:** ejercicio-docker-audit  
 **Fecha:** 2026-09-04  
@@ -18,7 +18,7 @@ GitHub Actions
 2. Bandit         → escanea código Python en busca de vulnerabilidades
 3. Docker build   → construye la imagen
 4. Trivy          → escanea la imagen Docker por vulnerabilidades
-5. GHCR publish   → publica la imagen (solo en push a main)
+5. Docker Hub     → publica la imagen (solo en push a main)
 ```
 
 El despliegue real en EC2, reverse proxy, HTTPS y dominios queda para el **PASO 4**.
@@ -29,12 +29,13 @@ El despliegue real en EC2, reverse proxy, HTTPS y dominios queda para el **PASO 
 
 | Archivo | Acción |
 |---------|--------|
-| `.github/workflows/ci-cd.yml` | **Creado** — Pipeline CI/CD completo |
+| `.github/workflows/ci-cd.yml` | **Creado/actualizado** — Pipeline CI/CD con Docker Hub |
 | `bandit.yaml` | **Creado** — Configuración de Bandit (falsos positivos documentados) |
 | `.trivyignore` | **Creado** — Lista de CVEs ignorados en Trivy (documentados) |
 | `requirements-dev.txt` | **Creado** — Dependencias de desarrollo (pytest) |
 | `.dockerignore` | **Actualizado** — Agregados `.github`, `bandit.yaml`, docs |
-| `.gitignore` | **Actualizado** — Agregados `.github/workflows/*.log` |
+| `.gitignore` | **Actualizado** — `.env.*` ignorado, `!.env.example` preservado |
+| `haslotuxd.txt` | **Actualizado** — Guía con Docker Hub y Access Token |
 
 ---
 
@@ -52,9 +53,12 @@ on:
 ### Permisos
 ```yaml
 permissions:
-  contents: read    # leer el código
-  packages: write   # subir imágenes a GHCR
+  contents: read    # leer el código del repositorio
 ```
+
+Solo se necesita `contents: read` porque la publicación a Docker Hub utiliza
+secrets dedicados (`DOCKER_USERNAME`, `DOCKER_PASSWORD`), no el `GITHUB_TOKEN`
+para packages.
 
 ### Jobs
 
@@ -62,16 +66,33 @@ permissions:
 |---|-----|---------|-------------|
 | 1 | `test` (Pytest) | push + PR | Instala `requirements-dev.txt`, ejecuta `pytest -v` |
 | 2 | `security-scan` (Bandit) | push + PR | Ejecuta `bandit -r . -x './.venv,./venv,./.git' -c bandit.yaml` |
-| 3 | `docker-build` | push + PR | Depende de jobs 1 y 2. Construye la imagen Docker y la guarda como artefacto |
-| 4 | `trivy-scan` | push + PR | Depende del job 3. Descarga la imagen, escanea con Trivy |
-| 5 | `publish-ghcr` | solo push a `main` | Depende de todos. Publica en GHCR |
+| 3 | `docker-build` | push + PR | Depende de jobs 1 y 2. **Único build**: construye la imagen con tags locales + Docker Hub, la guarda como artefacto `.tar` |
+| 4 | `trivy-scan` | push + PR | Depende del job 3. Carga la misma imagen del artefacto y la escanea con Trivy |
+| 5 | `publish-dockerhub` | solo push a `main` | Depende de todos. Carga la **misma imagen escaneada**, hace tag para Docker Hub y publica |
 
 ### Flujo de dependencias
 ```
 test ─┐
       ├─→ docker-build ──→ trivy-scan ─┐
-scan ─┘                              ─→ publish-ghcr (solo push a main)
+scan ─┘                              ─→ publish-dockerhub (solo push a main)
 ```
+
+### Arquitectura de build único (single-build)
+
+```
+docker-build (CONSTRUCCIÓN ÚNICA)
+  │
+  ├─→ Genera tags Docker Hub con docker/metadata-action
+  ├─→ Construye imagen con: docker/build-push-action (load: true)
+  │      tags: legacyapp:<sha> + andresmancera/mi-api:<tags>
+  ├─→ docker save → artefacto .tar (contiene TODOS los tags)
+  │
+  ├─→ trivy-scan: docker load → Trivy escanea legacyapp:<sha>
+  │
+  └─→ publish-dockerhub: docker load → re-etiqueta → docker push andresmancera/mi-api
+```
+
+**Garantía:** la imagen que Trivy escanea es exactamente la misma imagen que se publica en Docker Hub. No hay un segundo `docker build`. La imagen viaja como artefacto `.tar` entre jobs.
 
 ---
 
@@ -89,7 +110,7 @@ scan ─┘                              ─→ publish-ghcr (solo push a main)
 pytest>=8.0.0
 ```
 
-Se separaron las dependencias de runtime (`requirements.txt`) de las de desarrollo (`requirements-dev.txt`). Esto permite que la imagen Docker solo instale dependencias de runtime, reduciendo la superficie de ataque.
+Se separaron las dependencias de runtime (`requirements.txt`) de las de desarrollo (`requirements-dev.txt`). La imagen Docker solo instala dependencias de runtime, reduciendo la superficie de ataque.
 
 ### Tests que corren
 1. `test_health_check` — `/health` retorna 200 y "OK"
@@ -139,17 +160,19 @@ Total issues: 0
 ### Qué hace
 1. **Checkout** del código
 2. **Setup Buildx** con `docker/setup-buildx-action@v3`
-3. **Build** con `docker/build-push-action@v6`:
+3. **Extrae metadata** con `docker/metadata-action@v5`:
+   - Imagen: `andresmancera/mi-api`
+   - Tags: SHA del commit, nombre de rama, `latest` (solo en main)
+4. **Build** con `docker/build-push-action@v6`:
    - `context: .`
    - `file: ./Dockerfile`
-   - `load: true` (carga en el daemon local, no push)
-   - `tags: legacyapp:${{ github.sha }}` (tag basado en SHA del commit)
+   - `load: true` (carga en daemon local, NO push)
+   - `tags`: local tag `legacyapp:<sha>` + todos los tags de Docker Hub
+5. **Guarda** la imagen como artefacto `.tar` para Trivy y publish
 
-4. **Guarda la imagen** como artefacto para el siguiente job (Trivy)
-
-### Dockerfile actual (PASO 2)
+### Dockerfile actual
 ```dockerfile
-FROM python:3.11-slim          # base actualizada
+FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
@@ -157,7 +180,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 RUN useradd --create-home --shell /bin/false appuser && \
     chown -R appuser:appuser /app
-USER appuser                    # no root
+USER appuser
 EXPOSE 5050
 CMD ["gunicorn", "--bind", "0.0.0.0:5050", "app:app"]
 ```
@@ -184,6 +207,7 @@ CMD ["gunicorn", "--bind", "0.0.0.0:5050", "app:app"]
    - `exit-code: 1` (falla si encuentra vulnerabilidades)
    - `severity: CRITICAL,HIGH`
    - `ignore-unfixed: true` (ignora CVEs sin fix disponible)
+   - `ignorefile: .trivyignore` (ignora falsos positivos documentados)
 
 ### .trivyignore
 Se creó `.trivyignore` para documentar las siguientes excepciones:
@@ -202,32 +226,39 @@ Se creó `.trivyignore` para documentar las siguientes excepciones:
 
 ---
 
-## 8. GitHub Container Registry (GHCR)
+## 8. Docker Hub
 
 ### Autenticación
-Se utiliza `GITHUB_TOKEN` (token automático):
+Se utiliza un **Docker Hub Access Token** (no la contraseña normal):
 
 ```yaml
-- name: Log in to GitHub Container Registry
+- name: Log in to Docker Hub
   uses: docker/login-action@v3
   with:
-    registry: ghcr.io
-    username: ${{ github.actor }}
-    password: ${{ secrets.GITHUB_TOKEN }}
+    username: ${{ secrets.DOCKER_USERNAME }}
+    password: ${{ secrets.DOCKER_PASSWORD }}
 ```
 
-**No se necesita crear un Personal Access Token (PAT).** El `GITHUB_TOKEN` es suficiente y se genera automáticamente.
+### Secrets necesarios
+| Secret | Valor | Dónde crear |
+|--------|-------|-------------|
+| `DOCKER_USERNAME` | `andresmancera` | GitHub → Settings → Secrets → Actions |
+| `DOCKER_PASSWORD` | Access Token de Docker Hub | GitHub → Settings → Secrets → Actions |
+
+**NO se utiliza `GITHUB_TOKEN` para publicar imágenes.**
+
+### Cómo crear el Docker Hub Access Token
+1. Entra a https://hub.docker.com → Security → New Access Token
+2. Nombre: `github-actions`
+3. Permisos: read:packages, write:packages
+4. Copia el token completo
+5. En GitHub → Settings → Secrets → Actions → New repository secret
+6. Nombre: `DOCKER_PASSWORD`, Valor: pega el token
+7. Repite para `DOCKER_USERNAME` con valor `andresmancera`
 
 ### Nombre de la imagen
 ```
-ghcr.io/<owner>/<repo>:<tag>
-```
-
-Ejemplo:
-```
-ghcr.io/andres/ejercicio-docker-audit:latest
-ghcr.io/andres/ejercicio-docker-audit:abc123def456
-ghcr.io/andres/ejercicio-docker-audit:main
+andresmancera/mi-api:<tag>
 ```
 
 ### Estrategia de tags
@@ -236,6 +267,27 @@ ghcr.io/andres/ejercicio-docker-audit:main
 | SHA del commit (long) | Siempre | `type=sha,format=long` |
 | Nombre de rama | Push a main/master | `type=ref,event=branch` |
 | `latest` | Solo en rama principal | `type=raw,value=latest,enable={{is_default_branch}}` |
+
+### Publicación (build único, sin rebuild)
+
+El job `publish-dockerhub` **no construye una nueva imagen**. En su lugar:
+
+1. **Descarga** el artefacto `.tar` generado por `docker-build` (la misma imagen que Trivy escaneo)
+2. **Carga** la imagen con `docker load`
+3. **Hace tag** para Docker Hub usando `docker/metadata-action` (SHA, rama, latest)
+4. **Login** a Docker Hub con `DOCKER_USERNAME` / `DOCKER_PASSWORD`
+5. **Push** las etiquetas a `andresmancera/mi-api`
+
+```yaml
+# Resumen del flujo publish-dockerhub:
+# 1. download-artifact → obtiene legacyapp.tar (imagen única)
+# 2. docker load → carga la imagen escaneada por Trivy
+# 3. docker tag → etiqueta para andresmancera/mi-api:<tags>
+# 4. docker login → autenticación con DOCKER_USERNAME/DOCKER_PASSWORD
+# 5. docker push → publica la imagen exacta escaneada
+```
+
+**Ventaja:** La imagen publicada es idéntica a la escaneada. No hay riesgo de que un rebuild genere una imagen diferente.
 
 ### Condición de publicación
 ```yaml
@@ -252,10 +304,11 @@ Solo se publica cuando:
 
 | Buenas prácticas aplicadas | ¿Cumplido? |
 |---------------------------|-----------|
-| Usa `GITHUB_TOKEN` (no PAT hardcodeado) | ✅ |
-| Permisos mínimos (`contents: read`, `packages: write`) | ✅ |
+| Usa secrets (`DOCKER_USERNAME`, `DOCKER_PASSWORD`) — no hardcodeado | ✅ |
+| Permisos mínimos (`contents: read`) | ✅ |
 | No hay contraseñas en el YAML | ✅ |
 | No hay credenciales de BD en el YAML | ✅ |
+| No usa `GHCR` ni `GITHUB_TOKEN` para imágenes | ✅ |
 | Usa versiones estables de actions (`@v4`, `@v3`, `@v5`, `@v6`) | ✅ |
 | No ejecuta comandos privilegiados innecesarios | ✅ |
 
@@ -266,9 +319,9 @@ Solo se publica cuando:
 | Concepto | Definición | En este proyecto |
 |----------|-----------|-----------------|
 | **CI (Integración Continua)** | Compilación, tests y escaneo automático en cada cambio | Jobs: test, security-scan, docker-build, trivy-scan |
-| **CD (Entrega/Despliegue Continuo)** | Publicación automática de artefactos | Job: publish-ghcr (solo en push a main) |
+| **CD (Entrega/Despliegue Continuo)** | Publicación automática de artefactos | Job: publish-dockerhub (solo en push a main) |
 
-La entrega continua (CD) publica la imagen a GHCR. El **despliegue** real en EC2 es el **PASO 4**.
+La entrega continua (CD) publica la imagen a Docker Hub. El **despliegue** real en EC2 es el **PASO 4**.
 
 ---
 
@@ -276,7 +329,7 @@ La entrega continua (CD) publica la imagen a GHCR. El **despliegue** real en EC2
 
 ### pytest
 ```
-7 passed in 0.28s
+7 passed in 0.89s
 ```
 
 ### Bandit (con config)
@@ -287,11 +340,20 @@ Total issues: 0 (High: 0, Medium: 0, Low: 0)
 
 ### Docker build
 ```
-Successfully built ecc9acb96e33
-Successfully tagged legacyapp:trivy-final
+Successfully tagged ejercicio-docker-audit-app:latest
+Successfully tagged legacyapp:final
 ```
 
-### Docker compose
+### Docker compose config
+```
+name: ejercicio-docker-audit
+services:
+  app: ...
+  db: ...
+config OK
+```
+
+### Docker compose up
 ```
 Container legacyapp   Up    0.0.0.0:5051->5050/tcp
 Container legacydb    Up    3306/tcp (no expuesto al host)
@@ -318,7 +380,7 @@ Referrer-Policy: strict-origin-when-cross-origin
 uid=1000(appuser) — NO root
 ```
 
-### Trivy (con --ignore-unfixed y .trivyignore)
+### Trivy
 ```
 TRIVY_EXIT_CODE=0
 Total: 0 (HIGH: 0, CRITICAL: 0)
@@ -326,25 +388,90 @@ Total: 0 (HIGH: 0, CRITICAL: 0)
 
 ### YAML workflow
 ```
-YAML válido (parseado correctamente con Python yaml)
+YAML válido
 ```
 
 ---
 
-## 12. Qué queda pendiente para el PASO 4
+## 12. Estado de EC2 y Secrets
+
+### EC2 existente
+La instancia EC2 **ya existe**. Sin embargo, el **despliegue remoto en EC2 queda
+deliberadamente fuera del PASO 3** y se realizará en el PASO 4.
+
+### Secrets de GitHub — necesarias AHORA (PASO 3)
+Debes crear estas secrets para que el workflow publique en Docker Hub:
+
+| Secret | Valor | Cómo obtenerlo |
+|--------|-------|----------------|
+| `DOCKER_USERNAME` | `andresmancera` | Tu nombre de usuario de Docker Hub |
+| `DOCKER_PASSWORD` | Access Token | https://hub.docker.com → Security → New Access Token |
+
+### Secrets de GitHub — preparadas para PASO 4 (EC2)
+Estas secrets NO se usan en el workflow actual. Se crearán en el PASO 4:
+
+| Secret | Descripción | Cuándo crear |
+|--------|-------------|-------------|
+| `SERVER_HOST` | IP pública o DNS de la instancia EC2 | PASO 4 |
+| `SERVER_USER` | Usuario SSH de la AMI (ej: `ubuntu`) | PASO 4 |
+| `SERVER_SSH_KEY` | Clave privada SSH para acceder a la EC2 | PASO 4 |
+
+⚠ Estas secrets NO deben crearse todavía. Se crearán cuando estés listo para el PASO 4.
+
+### Tres tipos de credenciales
+
+| Tipo | Dónde viven | Uso |
+|------|-------------|-----|
+| **Credenciales locales** | Tu PC (`~/.docker/`, `.env` local) | `docker login` local, `docker compose` local |
+| **Secrets de GitHub Actions** | GitHub → Settings → Secrets → Actions | Usadas por el workflow CI/CD para Docker Hub |
+| **Credenciales EC2** | Dentro de la instancia EC2 | `docker login` en EC2, `.env` de producción |
+
+**Regla:** Nunca copiar credenciales dentro del código, Dockerfile, YAML o `.env.example`.
+
+---
+
+## 13. Qué queda pendiente para el PASO 4
 
 | Tarea | Estado |
 |-------|--------|
-| Crear instancia EC2 | ❌ Pendiente |
-| Configurar SSH en EC2 | ❌ Pendiente |
-| Instalar Docker en EC2 | ❌ Pendiente |
+| Despliegue en EC2 (ya existe la instancia) | ❌ Pendiente |
+| Crear secrets `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` | ❌ Pendiente |
+| SSH desde GitHub Actions hacia EC2 | ❌ Pendiente |
+| Docker login desde EC2 hacia Docker Hub | ❌ Pendiente |
+| `docker compose pull` desde EC2 | ❌ Pendiente |
+| `docker compose up -d` desde EC2 | ❌ Pendiente |
 | Configurar Nginx Proxy Manager | ❌ Pendiente |
 | Configurar HTTPS / Let's Encrypt | ❌ Pendiente |
 | Configurar DNS y subdominios (api, dozzle, kuma) | ❌ Pendiente |
 | Configurar firewall (puertos 80/443) | ❌ Pendiente |
-| Despliegue real (docker compose pull + up) | ❌ Pendiente |
 
 ### Preparación para PASO 4
-- La imagen está disponible en GHCR: `ghcr.io/<owner>/ejercicio-docker-audit:latest`
+- La imagen está disponible en Docker Hub: `andresmancera/mi-api:latest`
 - El `docker-compose.yml` puede modificarse en PASO 4 para usar `image:` en lugar de `build:`
 - El `haslotuxd.txt` contiene instrucciones para el despliegue manual
+- Las secrets `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` deben crearse en GitHub durante el PASO 4
+
+---
+
+## 14. Resumen del flujo single-build
+
+```
+push / PR
+  ↓
+test (pytest) ──→ 7 passed
+  ↓
+security-scan (Bandit) ──→ 0 issues (con bandit.yaml)
+  ↓
+docker-build ──→ Build ÚNICO
+  │              tags: legacyapp:<sha> + andresmancera/mi-api:<tags>
+  │              docker save → artefacto .tar
+  ↓
+trivy-scan ──→ Escanea la MISMA imagen del .tar (exit-code 1)
+  │              --ignore-unfixed
+  │              .trivyignore
+  ↓
+publish-dockerhub (solo push a main) ──→ docker load → docker push Docker Hub
+```
+
+**Garantía:** la imagen que Trivy escanea es idéntica a la publicada en Docker Hub.
+No hay un segundo `docker build`. La imagen viaja como artefacto `.tar`.
