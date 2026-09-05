@@ -249,6 +249,9 @@ jobs:
               --username "${DOCKER_USERNAME}" \
               --password-stdin
 
+            # Limpiar contenedores antiguos con container_name fijo (solo migración)
+            docker rm -f legacyapp legacydb nginx-proxy-manager dozzle uptime-kuma 2>/dev/null || true
+
             # Pull de la imagen y levantar stack
             docker compose -f docker-compose.yml pull
             docker compose -f docker-compose.yml up -d --remove-orphans
