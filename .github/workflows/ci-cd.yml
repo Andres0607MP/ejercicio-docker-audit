@@ -76,7 +76,7 @@ jobs:
         with:
           images: andresmancera/mi-api
           tags: |
-            type=sha,format=long
+            type=raw,value=${{ github.sha }}
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
@@ -161,7 +161,7 @@ jobs:
         with:
           images: andresmancera/mi-api
           tags: |
-            type=sha,format=long
+            type=raw,value=${{ github.sha }}
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
