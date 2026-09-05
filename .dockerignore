@@ -20,9 +20,7 @@ Dockerfile
 docker-compose.yml
 .github
 bandit.yaml
-REPORT_PASO2.md
-REPORT_PASO3.md
-AUDITORIA_BANDIT.md
+docs/
 .idea
 .vscode
 .DS_Store
