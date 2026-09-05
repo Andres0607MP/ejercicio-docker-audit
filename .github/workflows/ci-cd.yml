@@ -189,8 +189,11 @@ jobs:
   # IMPORTANTE:
   #   - No hace rebuild. Usa la misma imagen publicada en Docker Hub.
   #   - Copia docker-compose.yml al EC2 vía SCP.
-  #   - Ejecuta docker pull + docker compose up -d en la EC2.
-  #   - Requiere secrets: SERVER_HOST, SERVER_USER, SERVER_SSH_KEY.
+  #   - Crea .env con credenciales desde GitHub Secrets (NO hardcodeado).
+  #   - Ejecuta docker login → docker compose pull → docker compose up -d
+  #   - Requiere secrets: SERVER_HOST, SERVER_USER, SERVER_SSH_KEY,
+  #     DOCKER_USERNAME, DOCKER_PASSWORD, MYSQL_ROOT_PASSWORD,
+  #     DB_NAME, DB_USER, DB_PASS.
   # ──────────────────────────────────────────────────────────
   deploy-ec2:
     name: Desplegar en EC2
@@ -216,16 +219,37 @@ jobs:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           IMAGE_TAG: ${{ github.sha }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_TAG
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_TAG,MYSQL_ROOT_PASSWORD,DB_NAME,DB_USER,DB_PASS
           script: |
             set -e
             mkdir -p ~/deploy
             cd ~/deploy
-            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
+
+            # Crear .env con credenciales (usando printf para caracteres especiales)
+            printf '%s\n' \
+              "MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}" \
+              "DB_NAME=${DB_NAME}" \
+              "DB_USER=${DB_USER}" \
+              "DB_PASS=${DB_PASS}" \
+              "DB_HOST=mysql" \
+              "DB_PORT=3306" \
+              "IMAGE_TAG=${IMAGE_TAG}" > .env
+            chmod 600 .env
+
+            # Login a Docker Hub (usando --password-stdin)
+            echo "${DOCKER_PASSWORD}" | docker login \
+              --username "${DOCKER_USERNAME}" \
+              --password-stdin
+
+            # Pull de la imagen y levantar stack
             docker compose -f docker-compose.yml pull
             docker compose -f docker-compose.yml up -d --remove-orphans
-            echo "Deploy completado exitosamente"
+            docker compose -f docker-compose.yml ps
